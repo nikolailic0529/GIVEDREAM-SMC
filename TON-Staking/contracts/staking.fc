@@ -1,0 +1,162 @@
+;; Storage Format
+
+(int, int, int, slice, slice, slice, int) load_data() {
+  var ds = get_data().begin_parse();
+  return (
+    ds~load_grams(),    ;; data: max_amount
+    ds~load_grams(),    ;; data: current_amount
+    ds~load_uint(32),    ;; data: state (0:normal, 1: timer_init, 2: stop_staking)
+    ds~load_msg_addr(), ;; data: nominator-pool
+    ds~load_msg_addr(), ;; data: liquidity
+    ds~load_msg_addr(), ;; data: bridge
+    ds~load_uint(32)      ;; data: destination bsc address
+  );
+}
+
+() save_data(int max_amount, int current_amount, int state, slice addr_nominator_pool, slice addr_liquidity, slice addr_bridge, int addr_royalty) impure {
+  set_data(begin_cell()
+    .store_grams(max_amount)
+    .store_grams(current_amount)
+    .store_uint(state, 32)
+    .store_slice(addr_nominator_pool)
+    .store_slice(addr_liquidity)
+    .store_slice(addr_bridge)
+    .store_uint(addr_royalty, 32)
+  .end_cell());
+}
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+    var cs = in_msg_cell.begin_parse();
+    var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+    slice s_addr = cs~load_msg_addr();
+    (int s_addr_wc, int s_addr_hash)  = parse_std_addr(s_addr);
+
+    if (flags & 1) {
+        return ();
+    }
+
+    if (in_msg.slice_empty?()) {
+        return (); 
+    }
+    int op = in_msg~load_uint(32);
+    
+    (int max_amount, int current_amount, int state, slice addr_nominator_pool, slice addr_liquidity, slice addr_bridge, int addr_royalty) = load_data();
+    
+    ;; From Nominator-Pool
+    if (op == 0) {
+        ;; Timer_Init
+        if (state == 1)
+        {
+            int amount = msg_value - current_amount;
+
+            ;; To Nominator-Pool
+            var msg = begin_cell()
+                .store_uint(0x18, 6)
+                .store_slice(addr_nominator_pool)
+                .store_grams(current_amount)
+                .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                .store_uint(0x7374616b, 32);
+            send_raw_message(msg.end_cell(), 1);
+
+            if (current_amount + amount <= max_amount) {
+                var msg = begin_cell()
+                    .store_uint(0x18, 6)
+                    .store_slice(addr_bridge)
+                    .store_grams(amount)
+                    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                    .store_uint(0, 32)
+                    .store_slice("swapTo#")
+                    .store_uint(addr_royalty, 20);
+                send_raw_message(msg.end_cell(), 1);
+
+                current_amount += amount / 2;
+            } else {
+                var msg = begin_cell()
+                    .store_uint(0x18, 6)
+                    .store_slice(addr_liquidity)
+                    .store_grams(amount)
+                    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                    .store_uint(0, 32);
+                send_raw_message(msg.end_cell(), 1);
+            }
+
+            state = 0;  ;; To normal
+            save_data(max_amount, current_amount, state, addr_nominator_pool, addr_liquidity, addr_bridge, addr_royalty);
+            return ();
+        }
+        
+        ;; Stop_Staking
+        if (state == 2)
+        {
+            var msg = begin_cell()
+				.store_uint(0x18, 6)
+				.store_slice(addr_bridge)
+				.store_grams(msg_value)
+				.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+				.store_uint(0, 32)
+				.store_slice("swapTo#")
+				.store_uint(addr_royalty, 20);
+  			send_raw_message(msg.end_cell(), 1);
+
+            state = 0;  ;; To normal
+            current_amount = 0;
+            save_data(max_amount, current_amount, state, addr_nominator_pool, addr_liquidity, addr_bridge, addr_royalty);
+            return ();
+        }
+    }
+
+	;; Vote Checker
+	if (op == 1) {
+        throw_unless(393, ~ s_addr_wc); ;; Only workchain nominators
+        
+        ;; Persist data
+		current_amount += msg_value;
+
+        ;; To Nominator-Pool
+        var msg = begin_cell()
+			.store_uint(0x18, 6)
+			.store_slice(addr_nominator_pool)
+			.store_grams(msg_value)
+			.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+			.store_uint(0x7374616b, 32);
+		send_raw_message(msg.end_cell(), 1);
+
+		save_data(max_amount, current_amount, state, addr_nominator_pool, addr_liquidity, addr_bridge, addr_royalty);
+        return ();
+	}
+
+  	;; Timer Init
+	if (op == 2) {
+        state = 1;
+
+		var msg = begin_cell()
+			.store_uint(0x18, 6)
+			.store_slice(addr_nominator_pool)
+			.store_grams(0)
+			.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+			.store_uint(0x77697468, 32);
+		send_raw_message(msg.end_cell(), 1);
+
+		save_data(max_amount, current_amount, state, addr_nominator_pool, addr_liquidity, addr_bridge, addr_royalty);
+        return ();
+	}
+
+  	;; Stop staking
+	if (op == 3) {
+        state = 2;
+
+		var msg = begin_cell()
+			.store_uint(0x18, 6)
+			.store_slice(addr_nominator_pool)
+			.store_grams(0)
+			.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+			.store_uint(0x77697468, 32);
+		send_raw_message(msg.end_cell(), 1);
+
+		save_data(max_amount, current_amount, state, addr_nominator_pool, addr_liquidity, addr_bridge, addr_royalty);
+        return ();
+	}
+
+    ;; Unable to process message
+    throw(404);
+}
