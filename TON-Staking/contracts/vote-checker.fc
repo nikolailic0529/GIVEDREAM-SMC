@@ -1,0 +1,114 @@
+;; =============== storage =============================
+
+(slice, int, int, slice) load_data() inline {
+	var ds = get_data().begin_parse();
+  	return (
+	    ds~load_msg_addr(),
+	    ds~load_uint(32),
+    	ds~load_uint(32),
+    	ds~load_msg_addr()
+  	);
+}
+
+() save_data(slice addr_bridge, int addr_bsc_farming, int addr_bsc_staking, slice addr_ton_staking) impure inline {
+  	set_data(begin_cell()
+		.store_slice(addr_bridge)
+		.store_uint(addr_bsc_farming, 32)
+    	.store_uint(addr_bsc_staking, 32)
+    	.store_slice(addr_ton_staking)
+    	.end_cell()
+	);
+}
+
+;; =============== messages =============================
+
+() recv_internal(int msg_value, cell in_msg, slice in_msg_body) impure {
+	var cs = in_msg.begin_parse();
+    var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+    if (flags & 1) {
+        return ();
+    }
+
+	if (in_msg_body.slice_empty?()) {
+		return (); 
+  	}
+  	int op = in_msg_body~load_uint(32);
+  	var (addr_bridge, addr_bsc_farming, addr_bsc_staking, addr_ton_staking) = load_data();
+  
+  	;; BSC Farming
+  	if (op == 1) {
+		int min_value = 10 * 1000000000; ;; 10
+        throw_unless(393, msg_value >= min_value);
+
+    	var msg = begin_cell()
+			.store_uint(0x18, 6)
+			.store_slice(addr_bridge)
+			.store_grams(msg_value)
+			.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+			.store_uint(0, 32)
+			.store_slice("swapTo#")
+			.store_uint(addr_bsc_farming, 20);
+  		send_raw_message(msg.end_cell(), 1);
+
+    	return ();
+  	}
+
+  	;; BSC Staking
+  	if (op == 2) {
+		int min_value = 10 * 1000000000; ;; 10
+        throw_unless(393, msg_value >= min_value);
+
+		var msg = begin_cell()
+			.store_uint(0x18, 6)
+			.store_slice(addr_bridge)
+			.store_grams(msg_value)
+			.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+			.store_uint(0, 32)
+			.store_slice("swapTo#")
+			.store_uint(addr_bsc_staking, 20);
+  		send_raw_message(msg.end_cell(), 1);
+
+		return ();
+  	}
+
+  	;; TON Staking
+  	if (op == 3) {
+		var msg = begin_cell()
+			.store_uint(0x18, 6)
+			.store_slice(addr_ton_staking)
+			.store_grams(msg_value)
+			.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+			.store_uint(1, 32);
+  		send_raw_message(msg.end_cell(), 1);
+
+		return ();
+  	}
+
+  	;;
+  	;; Unable to process message
+  	;;
+
+  	throw(404);
+}
+
+;; =============== getters =============================
+
+slice bridge_address() method_id {
+  var (addr_bridge, _, _, _) = load_data();
+  return addr_bridge;
+}
+
+int bsc_farming_address() method_id {
+  var (_, addr_bsc_farming, _, _) = load_data();
+  return addr_bsc_farming;
+}
+
+int bsc_staking_address() method_id {
+  var (_, _, addr_bsc_staking, _) = load_data();
+  return addr_bsc_staking;
+}
+
+slice ton_staking_address() method_id {
+  var (_, _, _, addr_ton_staking) = load_data();
+  return addr_ton_staking;
+}
