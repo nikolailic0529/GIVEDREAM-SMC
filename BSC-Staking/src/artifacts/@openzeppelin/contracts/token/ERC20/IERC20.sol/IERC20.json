@@ -1,7 +1,7 @@
 {
   "_format": "hh-sol-artifact-1",
-  "contractName": "WrappedTON",
-  "sourceName": "contracts/Royalty.sol",
+  "contractName": "IERC20",
+  "sourceName": "@openzeppelin/contracts/token/ERC20/IERC20.sol",
   "abi": [
     {
       "anonymous": false,
@@ -118,71 +118,6 @@
         }
       ],
       "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "components": [
-            {
-              "internalType": "int8",
-              "name": "workchain",
-              "type": "int8"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "address_hash",
-              "type": "bytes32"
-            }
-          ],
-          "internalType": "struct TonAddress",
-          "name": "addr",
-          "type": "tuple"
-        }
-      ],
-      "name": "burn",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "components": [
-            {
-              "internalType": "int8",
-              "name": "workchain",
-              "type": "int8"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "address_hash",
-              "type": "bytes32"
-            }
-          ],
-          "internalType": "struct TonAddress",
-          "name": "addr",
-          "type": "tuple"
-        }
-      ],
-      "name": "burnFrom",
-      "outputs": [],
-      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
