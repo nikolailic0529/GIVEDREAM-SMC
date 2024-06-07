@@ -1,0 +1,126 @@
+;; =============== storage =============================
+
+(cell, cell, int, cell, int, int) load_data() inline {
+	var ds = get_data().begin_parse();
+  	return (
+	    ds~load_dict(),
+	    ds~load_dict(),
+	    ds~load_uint(32),
+	    ds~load_dict(),
+    	ds~load_uint(32),
+    	ds~load_uint(32)
+  	);
+}
+
+() save_data(cell history_list, cell nft_owners, int total_nft, cell user_jettons, int total_jetton, int user_bank) impure inline {
+  	set_data(begin_cell()
+		.store_dict(history_list)
+		.store_dict(nft_owners)
+		.store_uint(total_nft, 32)
+		.store_dict(user_jettons)
+    	.store_uint(total_jetton, 32)
+    	.store_uint(user_bank, 32)
+    	.end_cell()
+	);
+}
+
+(int, int) get_nominator_data (cell nominators, int address_hash) {
+  (slice nominator, int found) = nominators.udict_get?(256, address_hash);
+  if( ~ found) {
+    return (0, 0);
+  }
+  return (nominator~load_grams(), nominator~load_grams());
+}
+
+(cell, ()) ~set_nominator_data (cell nominators,
+                                int address_hash,
+                                int stake, 
+                                int locked
+) {
+  if (stake + locked > 0) {
+    nominators~udict_set_builder(256, address_hash, begin_cell()
+      .store_grams(stake)
+      .store_grams(locked)
+    );
+  } else {
+    nominators~udict_delete?(256, address_hash);
+  }
+  return (nominators, ());
+}
+
+;; =============== messages =============================
+
+() recv_internal(int msg_value, cell in_msg, slice in_msg_body) impure {
+	var cs = in_msg.begin_parse();
+    var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+	slice s_addr = cs~load_msg_addr();
+	(int s_addr_wc, int s_addr_hash)  = parse_std_addr(s_addr);
+    if (flags & 1) {
+        return ();
+    }
+
+	if (in_msg_body.slice_empty?()) {
+		return (); 
+  	}
+
+  	int op = in_msg_body~load_uint(32);
+
+	;; load data
+  	var (cell history_list, cell nft_owners, int total_nft, cell user_jettons, int total_jetton, int user_bank) = load_data();
+  
+	;; receive coin
+	if (msg_value > 0) {
+		history_list~udict_set_builder(256, now(), begin_cell().store_uint(msg_value, 32));
+	}
+
+  	;; calculate user bank
+  	if (op == 1) {
+		;; deltaA
+		int week_amount = 0;
+		(int key, slice history, int flag) = history_list.udict_get_max?(256);
+		while (flag & now() - key <= 604800) {
+			(key, history, flag) = history_list.udict_get_prev?(256, key);
+			int amount = history~load_uint(32);
+			week_amount += amount;
+		}
+
+		;; user_nft
+		int user_nft_cnt = 0;
+		(slice user_nft, int found) = nft_owners.udict_get?(256, s_addr_hash);
+		if (found) {
+			user_nft_cnt = user_nft~load_uint(32);
+		}
+
+		;; user_jetton
+		int user_jetton_cnt = 0;
+		(slice user_jetton, int found) = user_jettons.udict_get?(256, s_addr_hash);
+		if (found) {
+			user_jetton_cnt = user_jetton~load_uint(32);
+		}
+
+		user_bank += 3 / 10 * week_amount * user_nft_cnt / total_nft + 6 / 10 * week_amount * user_jetton_cnt / total_jetton;
+
+		;; save data
+		save_data(history_list, nft_owners, total_nft, user_jettons, total_jetton,user_bank);
+
+    	return ();
+  	}
+
+  	;; withdraw
+  	if (op == 2) {
+		int withdraw_amount = in_msg_body~load_uint(32);
+		[int balance, cell cur_col] = get_balance();
+
+		throw_if(394, withdraw_amount > balance);
+
+		return ();
+  	}
+
+  	;;
+  	;; Unable to process message
+  	;;
+
+  	throw(404);
+}
+
+;; =============== getters =============================
